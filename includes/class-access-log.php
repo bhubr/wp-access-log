@@ -58,6 +58,11 @@ class Access_Log {
 	protected $version;
 
 	/**
+	 * The inserted log entry id
+	 */
+	protected $entry_id;
+
+	/**
 	 * Define the core functionality of the plugin.
 	 *
 	 * Set the plugin name and the plugin version that can be used throughout the plugin.
@@ -74,11 +79,49 @@ class Access_Log {
 		}
 		$this->plugin_name = 'access-log';
 
+		$this->init();
 		$this->load_dependencies();
 		$this->set_locale();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
+		register_shutdown_function([$this, 'shutdown']);
+		remove_action( 'shutdown', 'wp_ob_end_flush_all', 1 );
+	}
 
+	/**
+	 * Initialize plugin
+	 */
+	private function init() {
+		ob_start();
+		global $wpdb;
+		$ret = $wpdb->insert( $wpdb->prefix . 'wpaccesslog', [
+			'req_ip' => $_SERVER['REMOTE_ADDR'],
+			'req_recv_at' => 'NOW()',
+			'req_method' => $_SERVER['REQUEST_METHOD'],
+			'req_pathname' => $_SERVER['REQUEST_URI'],
+			'req_proto' => $_SERVER['SERVER_PROTOCOL'],
+			'req_referer' => in_array('HTTP_REFERER', $_SERVER) ? $_SERVER['HTTP_REFERER'] : '-',
+			'req_user_agent' => $_SERVER['HTTP_USER_AGENT']
+		//
+		// res_content_length
+		]);
+		$this->entry_id = (int) $wpdb->insert_id;
+	}
+
+	public function shutdown() {
+		$content_len = ob_get_length();
+		ob_end_flush();
+		global $wpdb;
+		$wpdb->update(
+			$wpdb->prefix . 'wpaccesslog',
+			[
+				'res_status' => http_response_code(),
+				'res_content_length' => $content_len
+			],
+			[
+				'id' => $this->entry_id
+			]
+		);
 	}
 
 	/**
